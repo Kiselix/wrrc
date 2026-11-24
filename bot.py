@@ -22,6 +22,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 SUPPORT_USERNAME = os.getenv("SUPPORT_USERNAME", "")
 DB_PATH = os.getenv("DB_PATH", "database.db")
+POST_CHAT_ID = os.getenv("POST_CHAT_ID", "")
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -97,6 +98,8 @@ def admin_kb():
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Статистика", callback_data="a_stats"), InlineKeyboardButton(text="Пользователи", callback_data="a_users")],[InlineKeyboardButton(text="Каналы", callback_data="a_channels")],[InlineKeyboardButton(text="Рассылка", callback_data="a_broadcast")]])
 
 async def send_carousel(bot: Bot, chat_id: int, photo_ids: list[str], caption: str):
+    if not 1 <= len(photo_ids) <= 10:
+        raise ValueError("Telegram media group supports from 1 to 10 photos")
     media = [InputMediaPhoto(media=photo_id, caption=caption if index == 0 else None,
                              parse_mode=ParseMode.HTML) for index, photo_id in enumerate(photo_ids)]
     if len(media) == 1:
@@ -173,7 +176,10 @@ async def publish(call: CallbackQuery, state: FSMContext, bot: Bot):
     if row[3] > 0 and not await is_active_sub(row): await db_exec("UPDATE users SET posts=posts-1 WHERE id=?", (call.from_user.id,))
     elif not row[6] and not await is_active_sub(row): await db_exec("UPDATE users SET free_used=1 WHERE id=?", (call.from_user.id,))
     photo_ids = ",".join(data.get("photos", [])); await db_exec("INSERT INTO posts(user_id,photo_ids,title,price,contact,created_at) VALUES(?,?,?,?,?,?)", (call.from_user.id, photo_ids, data.get("title",""), data.get("price",""), data.get("contact",""), now()))
-    await state.clear(); await call.answer("Опубликовано"); await call.message.answer("Пост успешно опубликован.", reply_markup=MAIN_KB)
+    destination = int(POST_CHAT_ID) if POST_CHAT_ID else call.message.chat.id
+    caption = f"{escape(data['title'])}\n\nЦена {escape(data['price'])}\nДля заказа пишите {escape(data['contact'])}"
+    await send_carousel(bot, destination, data.get("photos", []), caption)
+    await state.clear(); await call.answer("Опубликовано"); await call.message.answer("Пост успешно опубликован каруселью.", reply_markup=MAIN_KB)
 
 async def send_buy_menu(message):
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="1 пост — 50 ⭐", callback_data="buy_1")],[InlineKeyboardButton(text="5 постов — 100 ⭐", callback_data="buy_5")],[InlineKeyboardButton(text="10 постов — 200 ⭐", callback_data="buy_10")],[InlineKeyboardButton(text="Подписка — 100 ⭐", callback_data="buy_sub")]])
